@@ -1,0 +1,14 @@
+[default]
+port    = 8080
+address = "0.0.0.0"
+
+# Raw Data<'_> limits are enforced at the call-site (MAX_BODY in diary.rs).
+# These limits guard typed extractors (forms, JSON, etc.) if added later.
+[default.limits]
+bytes  = "10 MiB"
+string = "10 MiB"
+json   = "10 MiB"
+
+[release]
+port    = 8080
+address = "0.0.0.0"

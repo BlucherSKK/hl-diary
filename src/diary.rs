@@ -1,0 +1,281 @@
+//! # Diary file format
+//!
+//! ```text
+//! ┌─────────────────────────────────────┐
+//! │  bytes 0..128  │  write-key (raw)   │  ← checked server-side on PUT / DELETE
+//! ├────────────────┴────────────────────┤
+//! │  bytes 128..   │  client payload    │  ← opaque; encrypted client-side
+//! │                │  (typically:       │     never inspected by the server
+//! │                │   encrypt(         │
+//! │                │     key ++ text,   │
+//! │                │     password))     │
+//! └─────────────────────────────────────┘
+//! ```
+//!
+//! # API
+//!
+//! | Method | Path                  | Auth header      | Body            |
+//! |--------|-----------------------|------------------|-----------------|
+//! | POST   | /api/diary/:username  | X-Diary-Key      | encrypted bytes |
+//! | GET    | /api/diary/:username  | —                | —               |
+//! | PUT    | /api/diary/:username  | X-Diary-Key      | encrypted bytes |
+//! | DELETE | /api/diary/:username  | X-Diary-Key      | —               |
+
+use crate::guards::{DiaryKey, KEY_SIZE};
+use rocket::{
+    data::Data,
+    http::{ContentType, Status},
+    response::status,
+    tokio::{
+        fs as tfs,
+        io::{AsyncReadExt, AsyncWriteExt},
+    },
+};
+use std::{
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
+
+pub const DIARIES_DIR: &str = "./diaries";
+const MAX_BODY: rocket::data::ByteUnit = rocket::data::ByteUnit::Mebibyte(10);
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+/// Allow only ASCII alphanumeric characters plus `_` and `-`, length 1-64.
+/// Prevents path-traversal and filesystem weirdness.
+fn sanitize(username: &str) -> Option<&str> {
+    if username.is_empty() || username.len() > 64 {
+        return None;
+    }
+    if username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        Some(username)
+    } else {
+        None
+    }
+}
+
+fn diary_path(username: &str) -> PathBuf {
+    PathBuf::from(DIARIES_DIR).join(format!("{username}.diary"))
+}
+
+fn tmp_path(username: &str) -> PathBuf {
+    PathBuf::from(DIARIES_DIR).join(format!("{username}.diary.tmp"))
+}
+
+/// Constant-time byte comparison — guards against timing-based key leakage.
+///
+/// Note: for a production-grade implementation, consider the `subtle` crate
+/// which guarantees no compiler-introduced short-circuit optimisations.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Shared API result type: the `Err` variant is a rocket-responder tuple.
+type ApiResult<T> = Result<T, (Status, String)>;
+
+// ─── file I/O ───────────────────────────────────────────────────────────────
+
+/// Read the 128-byte write-key from the front of a `.diary` file.
+/// Returns `404 Not Found` if the file is absent, `500` on other I/O errors.
+async fn read_key(path: &Path) -> ApiResult<[u8; KEY_SIZE]> {
+    let mut file = tfs::File::open(path).await.map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            (Status::NotFound, "Diary not found".into())
+        } else {
+            (Status::InternalServerError, format!("Cannot open diary: {e}"))
+        }
+    })?;
+
+    let mut key = [0u8; KEY_SIZE];
+    file.read_exact(&mut key).await.map_err(|e| {
+        (
+            Status::InternalServerError,
+            format!("Cannot read diary key: {e}"),
+        )
+    })?;
+
+    Ok(key)
+}
+
+/// Atomically write `[key ++ body]` to `<username>.diary`.
+///
+/// Uses a sibling `.tmp` file + rename so a crash mid-write never leaves a
+/// half-written diary on disk.
+async fn write_diary(username: &str, key: &[u8; KEY_SIZE], body: &[u8]) -> ApiResult<()> {
+    let final_path = diary_path(username);
+    let tmp = tmp_path(username);
+
+    // 1. Write to the temp file
+    let mut file = tfs::File::create(&tmp).await.map_err(|e| {
+        (
+            Status::InternalServerError,
+            format!("Cannot create temp file: {e}"),
+        )
+    })?;
+
+    file.write_all(key.as_slice()).await.map_err(|e| {
+        (Status::InternalServerError, format!("Write error (key): {e}"))
+    })?;
+
+    file.write_all(body).await.map_err(|e| {
+        (
+            Status::InternalServerError,
+            format!("Write error (body): {e}"),
+        )
+    })?;
+
+    // 2. Sync to disk before rename to survive a power-loss between the two
+    file.sync_all().await.map_err(|e| {
+        (Status::InternalServerError, format!("Sync error: {e}"))
+    })?;
+
+    drop(file);
+
+    // 3. Atomic rename
+    tfs::rename(&tmp, &final_path).await.map_err(|e| {
+        (
+            Status::InternalServerError,
+            format!("Rename error: {e}"),
+        )
+    })?;
+
+    Ok(())
+}
+
+// ─── routes ─────────────────────────────────────────────────────────────────
+
+/// **POST /api/diary/`<username>`** — Create a new diary.
+///
+/// * `X-Diary-Key` header : Base64-encoded 128-byte write-key
+///   (generated by the client; the client also embeds it inside the encrypted
+///   body so it can be recovered after password-decryption later)
+/// * Body : raw bytes — the client-encrypted payload
+///
+/// Returns `201 Created` or an appropriate error.
+#[post("/<username>", data = "<body>")]
+pub async fn create(
+    username: &str,
+    key: DiaryKey,
+    body: Data<'_>,
+) -> ApiResult<status::Created<String>> {
+    let name = sanitize(username).ok_or((
+        Status::BadRequest,
+        "Invalid username — use [A-Za-z0-9_-], 1-64 chars".into(),
+    ))?;
+
+    if diary_path(name).exists() {
+        return Err((
+            Status::Conflict,
+            format!("Diary '{name}' already exists"),
+        ));
+    }
+
+    let bytes = body
+        .open(MAX_BODY)
+        .into_bytes()
+        .await
+        .map_err(|e| (Status::InternalServerError, format!("Failed to read body: {e}")))?;
+
+    if !bytes.is_complete() {
+        return Err((Status::PayloadTooLarge, "Body exceeds 10 MiB".into()));
+    }
+
+    write_diary(name, &key.0, &bytes.value).await?;
+
+    Ok(status::Created::new(format!("/api/diary/{name}"))
+        .body(format!("Diary '{name}' created")))
+}
+
+/// **GET /api/diary/`<username>`** — Read a diary.
+///
+/// Returns the client payload (bytes `[128..]` of the file).
+/// No authentication required — the body is already encrypted client-side.
+#[get("/<username>")]
+pub async fn read(username: &str) -> ApiResult<(ContentType, Vec<u8>)> {
+    let name = sanitize(username)
+        .ok_or((Status::BadRequest, "Invalid username".into()))?;
+
+    let path = diary_path(name);
+    let full = tfs::read(&path).await.map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            (Status::NotFound, format!("Diary '{name}' not found"))
+        } else {
+            (Status::InternalServerError, format!("Cannot read diary: {e}"))
+        }
+    })?;
+
+    if full.len() < KEY_SIZE {
+        return Err((
+            Status::InternalServerError,
+            "Diary file is corrupted (too short)".into(),
+        ));
+    }
+
+    Ok((ContentType::Binary, full[KEY_SIZE..].to_vec()))
+}
+
+/// **PUT /api/diary/`<username>`** — Overwrite a diary's body.
+///
+/// * `X-Diary-Key` header : must match the key stored on disk
+/// * Body : new encrypted payload
+///
+/// The stored key is preserved; only the body is replaced.
+#[put("/<username>", data = "<body>")]
+pub async fn update(
+    username: &str,
+    key: DiaryKey,
+    body: Data<'_>,
+) -> ApiResult<String> {
+    let name = sanitize(username)
+        .ok_or((Status::BadRequest, "Invalid username".into()))?;
+
+    let stored_key = read_key(&diary_path(name)).await?;
+
+    if !ct_eq(&stored_key, &key.0) {
+        return Err((Status::Unauthorized, "Key does not match".into()));
+    }
+
+    let bytes = body
+        .open(MAX_BODY)
+        .into_bytes()
+        .await
+        .map_err(|e| (Status::InternalServerError, format!("Failed to read body: {e}")))?;
+
+    if !bytes.is_complete() {
+        return Err((Status::PayloadTooLarge, "Body exceeds 10 MiB".into()));
+    }
+
+    write_diary(name, &stored_key, &bytes.value).await?;
+
+    Ok(format!("Diary '{name}' updated"))
+}
+
+/// **DELETE /api/diary/`<username>`** — Delete a diary.
+///
+/// * `X-Diary-Key` header : must match the key stored on disk
+#[delete("/<username>")]
+pub async fn delete(username: &str, key: DiaryKey) -> ApiResult<String> {
+    let name = sanitize(username)
+        .ok_or((Status::BadRequest, "Invalid username".into()))?;
+
+    let stored_key = read_key(&diary_path(name)).await?;
+
+    if !ct_eq(&stored_key, &key.0) {
+        return Err((Status::Unauthorized, "Key does not match".into()));
+    }
+
+    tfs::remove_file(diary_path(name)).await.map_err(|e| {
+        (
+            Status::InternalServerError,
+            format!("Cannot delete diary: {e}"),
+        )
+    })?;
+
+    Ok(format!("Diary '{name}' deleted"))
+}
