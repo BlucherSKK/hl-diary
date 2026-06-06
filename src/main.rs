@@ -11,14 +11,14 @@ use rocket::fs::NamedFile;
 /// Serve the SPA shell.
 #[get("/")]
 async fn index() -> Option<NamedFile> {
-    NamedFile::open("static/index.html").await.ok()
+    NamedFile::open("/home/blucher/development/HL-dairy/client.html").await.ok()
 }
 
 /// Catch-all fallback so client-side routing works after the SPA is wired up.
 /// Low rank (= low priority) so all API routes win first.
 #[get("/<_..>", rank = 20)]
 async fn spa_fallback() -> Option<NamedFile> {
-    NamedFile::open("static/index.html").await.ok()
+    NamedFile::open("/home/blucher/development/HL-dairy/client.html").await.ok()
 }
 
 // ─── launch ─────────────────────────────────────────────────────────────────
