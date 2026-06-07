@@ -864,16 +864,81 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
   flex: 1;
   padding: 16px 20px;
   font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.75;
+  font-size: 15px;
+  line-height: 1.6;
   overflow-y: auto;
   color: var(--text);
 }
 
-.art-preview-body p {
-  margin-bottom: 0.75em;
-  min-height: 1.5em;
+/* pre-wrap блок текста — переносы как в редакторе */
+.art-text-block {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
 }
+
+/* Markdown-заголовки */
+.art-h1 {
+  font-family: var(--font-ui);
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--text);
+  border-bottom: 2px solid var(--sh2);
+  padding-bottom: 3px;
+  margin: 14px 0 6px;
+}
+.art-h2 {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--text);
+  margin: 10px 0 4px;
+}
+.art-h3 {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 8px 0 3px;
+}
+
+/* Кнопка Save (синяя) */
+.art-save-btn {
+  background: var(--accent);
+  color: var(--text-inv);
+  font-weight: bold;
+}
+.art-save-btn:hover  { background: var(--accent-lt); }
+.art-save-btn:active { box-shadow: var(--sunken); }
+
+/* Обёртка редактора с drag&drop оверлеем */
+.art-editor-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin: 6px;
+  min-height: 0;
+}
+
+.art-editor-drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(91, 141, 184, 0.22);
+  box-shadow: inset 0 0 0 3px var(--accent);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: var(--accent-dk);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 5;
+}
+.art-editor-wrap.drop-active .art-editor-drop-overlay { display: flex; }
+.art-editor-wrap .art-editor { flex: 1; margin: 0; }
 
 .art-link {
   color: var(--accent);
