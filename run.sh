@@ -50,4 +50,6 @@ replace_from_file ./tmp/tempapp/index.html "##SCRIPT##" ./tmp/val.tmp
 mv ./tmp/tempapp/index.html ./client.html
 rm -rf ./tmp
 
+touch ./src/main.rs
+
 cargo run
