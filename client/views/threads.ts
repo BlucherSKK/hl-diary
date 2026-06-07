@@ -17,7 +17,7 @@ export function renderThreads(container: HTMLElement): void {
     container.innerHTML = '';
     container.className = 'thr-root';
 
-    // ── Left sidebar: thread list ─────────────────────────────────────────
+    /* ── Left sidebar ──────────────────────────────────────────────────── */
     const sidebar = document.createElement('div');
     sidebar.className = 'thr-sidebar';
     container.appendChild(sidebar);
@@ -32,12 +32,7 @@ export function renderThreads(container: HTMLElement): void {
     newBtn.addEventListener('click', () => {
       const name = prompt('Thread name:')?.trim();
       if (!name) return;
-      const thread: Thread = {
-        id: nanoid(),
-        name,
-        messages: [],
-        createdAt: unixNow(),
-      };
+      const thread: Thread = { id: nanoid(), name, messages: [], createdAt: unixNow() };
       data.threads.push(thread);
       selectedId = thread.id;
       scheduleSave();
@@ -66,13 +61,10 @@ export function renderThreads(container: HTMLElement): void {
       sorted.forEach(t => {
         const item = document.createElement('div');
         item.className = 'thr-list-item' + (t.id === selectedId ? ' active' : '');
-
         const lastMsg = t.messages[t.messages.length - 1];
         item.innerHTML = `
-          <div class="thr-item-name">${esc(t.name)}</div>
-          <div class="thr-item-preview">${
-            lastMsg ? esc(lastMsg.text.slice(0, 50) || '[image]') : 'Empty'
-          }</div>
+        <div class="thr-item-name">${esc(t.name)}</div>
+        <div class="thr-item-preview">${lastMsg ? esc(lastMsg.text.slice(0, 50) || '[image]') : 'Empty'}</div>
         `;
         item.addEventListener('click', () => {
           selectedId = t.id;
@@ -83,7 +75,7 @@ export function renderThreads(container: HTMLElement): void {
       });
     }
 
-    // ── Right pane: messages ───────────────────────────────────────────────
+    /* ── Right pane ────────────────────────────────────────────────────── */
     const main = document.createElement('div');
     main.className = 'thr-main';
     container.appendChild(main);
@@ -92,23 +84,20 @@ export function renderThreads(container: HTMLElement): void {
     if (!thread) {
       const ph = document.createElement('div');
       ph.className = 'thr-placeholder';
-      ph.innerHTML = `
-        <span class="thr-ph-icon">◈</span>
-        <p>Select a thread or create a new one</p>
-      `;
+      ph.innerHTML = `<span class="thr-ph-icon">◈</span><p>Select a thread or create a new one</p>`;
       main.appendChild(ph);
       return;
     }
 
-    // Header
+    /* Header */
     const header = document.createElement('div');
     header.className = 'thr-header';
     header.innerHTML = `<span class="thr-header-name">${esc(thread.name)}</span>`;
 
-    const delThreadBtn = document.createElement('button');
-    delThreadBtn.className = 'thr-del-thread-btn';
-    delThreadBtn.textContent = 'Delete thread';
-    delThreadBtn.addEventListener('click', () => {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'thr-del-thread-btn';
+    delBtn.textContent = 'Delete thread';
+    delBtn.addEventListener('click', () => {
       if (!confirm(`Delete thread "${thread.name}"?`)) return;
       const idx = data.threads.indexOf(thread);
       if (idx >= 0) data.threads.splice(idx, 1);
@@ -116,10 +105,10 @@ export function renderThreads(container: HTMLElement): void {
       scheduleSave();
       render();
     });
-    header.appendChild(delThreadBtn);
+    header.appendChild(delBtn);
     main.appendChild(header);
 
-    // Messages area
+    /* Messages */
     const msgs = document.createElement('div');
     msgs.className = 'thr-messages';
     main.appendChild(msgs);
@@ -129,72 +118,112 @@ export function renderThreads(container: HTMLElement): void {
       if (thread.messages.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'thr-msgs-empty';
-        empty.textContent = 'No messages yet — send the first one!';
+        empty.textContent = 'No messages yet — type below or drop an image';
         msgs.appendChild(empty);
         return;
       }
 
-      // Group by date
-      let lastDateLabel = '';
+      let lastDate = '';
       thread.messages.forEach(msg => {
         const dateLabel = fmtDate(msg.timestamp);
-        if (dateLabel !== lastDateLabel) {
-          const divider = document.createElement('div');
-          divider.className = 'thr-date-divider';
-          divider.textContent = dateLabel;
-          msgs.appendChild(divider);
-          lastDateLabel = dateLabel;
+        if (dateLabel !== lastDate) {
+          const div = document.createElement('div');
+          div.className = 'thr-date-divider';
+          div.textContent = dateLabel;
+          msgs.appendChild(div);
+          lastDate = dateLabel;
         }
 
         const bubble = document.createElement('div');
         bubble.className = 'thr-bubble';
 
-        if (msg.text) {
-          const textEl = document.createElement('div');
-          textEl.className = 'thr-bubble-text';
-          // Preserve newlines
-          textEl.textContent = msg.text;
-          bubble.appendChild(textEl);
-        }
+      if (msg.text) {
+        const textEl = document.createElement('div');
+        textEl.className = 'thr-bubble-text';
+        textEl.textContent = msg.text;
+        bubble.appendChild(textEl);
+      }
 
-        if (msg.image) {
-          const imgEl = document.createElement('img');
-          imgEl.src = `data:${msg.image.mime};base64,${msg.image.data}`;
-          imgEl.className = 'thr-bubble-img';
-          imgEl.style.maxWidth = `${Math.round(msg.image.scale * 100)}%`;
-          bubble.appendChild(imgEl);
-        }
+      if (msg.image) {
+        const imgEl = document.createElement('img');
+        imgEl.src = `data:${msg.image.mime};base64,${msg.image.data}`;
+        imgEl.className = 'thr-bubble-img';
+        imgEl.style.maxWidth = `${Math.round(msg.image.scale * 100)}%`;
+        bubble.appendChild(imgEl);
+      }
 
-        const meta = document.createElement('div');
-        meta.className = 'thr-bubble-meta';
-        meta.textContent = fmtDateTime(msg.timestamp);
+      const meta = document.createElement('div');
+      meta.className = 'thr-bubble-meta';
+      meta.textContent = fmtDateTime(msg.timestamp);
 
-        const delBtn = document.createElement('button');
-        delBtn.className = 'thr-del-msg';
-        delBtn.textContent = '×';
-        delBtn.title = 'Delete message';
-        delBtn.addEventListener('click', () => {
-          const idx = thread.messages.indexOf(msg);
-          if (idx >= 0) thread.messages.splice(idx, 1);
-          scheduleSave();
-          renderMessages();
-        });
-        meta.appendChild(delBtn);
-        bubble.appendChild(meta);
-        msgs.appendChild(bubble);
+      const delMsg = document.createElement('button');
+      delMsg.className = 'thr-del-msg';
+      delMsg.textContent = '×';
+      delMsg.title = 'Delete message';
+      delMsg.addEventListener('click', () => {
+        const idx = thread.messages.indexOf(msg);
+        if (idx >= 0) thread.messages.splice(idx, 1);
+        scheduleSave();
+        renderMessages();
+      });
+      meta.appendChild(delMsg);
+      bubble.appendChild(meta);
+      msgs.appendChild(bubble);
       });
 
-      // Scroll to bottom
       msgs.scrollTop = msgs.scrollHeight;
     }
     renderMessages();
 
-    // Input bar
+    /* ── Input area ────────────────────────────────────────────────────── */
     const inputArea = document.createElement('div');
     inputArea.className = 'thr-input-area';
     main.appendChild(inputArea);
 
-    // Image preview
+    /* Drop overlay */
+    const dropOverlay = document.createElement('div');
+    dropOverlay.className = 'thr-drop-overlay';
+    dropOverlay.textContent = '↓ Drop image here';
+    inputArea.appendChild(dropOverlay);
+
+    /* Drag & drop on inputArea (and messages area) */
+    function handleDragOver(e: DragEvent) {
+      const hasImage = Array.from(e.dataTransfer?.items || [])
+      .some(i => i.kind === 'file' && i.type.startsWith('image/'));
+      if (!hasImage) return;
+      e.preventDefault();
+      inputArea.classList.add('thr-drop-active');
+    }
+
+    function handleDragLeave(e: DragEvent) {
+      if (!inputArea.contains(e.relatedTarget as Node)) {
+        inputArea.classList.remove('thr-drop-active');
+      }
+    }
+
+    async function handleDrop(e: DragEvent) {
+      e.preventDefault();
+      inputArea.classList.remove('thr-drop-active');
+      const file = Array.from(e.dataTransfer?.files || [])
+      .find(f => f.type.startsWith('image/'));
+      if (!file) return;
+      try {
+        const { data: b64, mime } = await readFileB64(file);
+        pendingImage = { data: b64, mime, scale: 1.0 };
+        updateImgPreview();
+      } catch {
+        alert('Failed to read image');
+      }
+    }
+
+    inputArea.addEventListener('dragover', handleDragOver);
+    inputArea.addEventListener('dragleave', handleDragLeave);
+    inputArea.addEventListener('drop', handleDrop);
+    msgs.addEventListener('dragover', handleDragOver);
+    msgs.addEventListener('dragleave', handleDragLeave);
+    msgs.addEventListener('drop', handleDrop);
+
+    /* Image preview (when a file is pending) */
     const imgPreview = document.createElement('div');
     imgPreview.className = 'thr-img-preview';
     imgPreview.style.display = 'none';
@@ -247,7 +276,7 @@ export function renderThreads(container: HTMLElement): void {
       imgPreview.appendChild(sliderWrap);
     }
 
-    // Compose row
+    /* Compose row */
     const compose = document.createElement('div');
     compose.className = 'thr-compose';
     inputArea.appendChild(compose);
@@ -258,54 +287,24 @@ export function renderThreads(container: HTMLElement): void {
     textarea.rows = 1;
     textarea.addEventListener('input', () => {
       textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+      textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
     });
-    textarea.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendBtn.click();
-      }
-    });
-
-    const attachBtn = document.createElement('button');
-    attachBtn.className = 'thr-attach-btn';
-    attachBtn.textContent = '📎';
-    attachBtn.title = 'Attach image';
-
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
-    fileInput.style.display = 'none';
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files?.[0];
-      if (!file) return;
-      try {
-        const { data: b64, mime } = await readFileB64(file);
-        pendingImage = { data: b64, mime, scale: 1.0 };
-        updateImgPreview();
-      } catch {
-        alert('Failed to load image');
-      }
-      fileInput.value = '';
-    });
-    attachBtn.addEventListener('click', () => fileInput.click());
 
     const sendBtn = document.createElement('button');
     sendBtn.className = 'thr-send-btn';
     sendBtn.textContent = 'Send';
+
     sendBtn.addEventListener('click', () => {
       const text = textarea.value.trim();
       if (!text && !pendingImage) return;
-
       const msg: ThreadMessage = {
         id: nanoid(),
-        text,
-        timestamp: unixNow(),
-        image: pendingImage ?? undefined,
+                             text,
+                             timestamp: unixNow(),
+                             image: pendingImage ?? undefined,
       };
       thread.messages.push(msg);
       scheduleSave();
-
       textarea.value = '';
       textarea.style.height = 'auto';
       pendingImage = null;
@@ -313,10 +312,21 @@ export function renderThreads(container: HTMLElement): void {
       renderMessages();
     });
 
+    textarea.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+      }
+    });
+
     compose.appendChild(textarea);
-    compose.appendChild(fileInput);
-    compose.appendChild(attachBtn);
     compose.appendChild(sendBtn);
+
+    /* Hint text */
+    const hint = document.createElement('div');
+    hint.className = 'thr-drop-hint';
+    hint.textContent = 'Drag & drop image to attach';
+    inputArea.appendChild(hint);
   }
 
   render();

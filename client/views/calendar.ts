@@ -1,30 +1,15 @@
 import { session, scheduleSave } from '../state';
 import type { DiaryEvent } from '../types';
-import { nanoid, unixNow, fmtTime, esc } from '../utils';
+import { nanoid, fmtTime, esc } from '../utils';
 
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const MONTHS = ['January','February','March','April','May','June',
-                'July','August','September','October','November','December'];
+'July','August','September','October','November','December'];
+const COLORS = ['#5B8DB8','#AA3333','#3A7A3A','#8A6A20','#7A4A8A','#3A6A6A','#AA6633'];
 
-const DEFAULT_COLORS = ['#7c6dff','#ff5555','#50fa7b','#f1fa8c','#ff79c6','#8be9fd','#ffb86c'];
-
-function startOfMonday(year: number, month: number): number {
-  // Returns the date of the Monday that starts the grid row containing the 1st
-  const d = new Date(year, month, 1);
-  const dow = (d.getDay() + 6) % 7; // 0=Mon
-  d.setDate(1 - dow);
-  return d.getDate() < 0 ? 1 : d.getTime();
-}
-
-/** Get [year, month, day] from a unix timestamp (local time). */
 function ymd(ts: number): [number, number, number] {
   const d = new Date(ts * 1000);
   return [d.getFullYear(), d.getMonth(), d.getDate()];
-}
-
-/** Return unix timestamp (seconds) at midnight local time for the given date. */
-function localMidnight(year: number, month: number, day: number): number {
-  return new Date(year, month, day).getTime() / 1000;
 }
 
 export function renderCalendar(container: HTMLElement): void {
@@ -33,56 +18,232 @@ export function renderCalendar(container: HTMLElement): void {
 
   let viewYear  = new Date().getFullYear();
   let viewMonth = new Date().getMonth();
-  let selectedDay: [number, number, number] | null = null;
+
+  function buildEventMap() {
+    const map = new Map<string, DiaryEvent[]>();
+    for (const ev of data.events) {
+      const [y, m, d] = ymd(ev.timestamp);
+      const key = `${y}-${m}-${d}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(ev);
+    }
+    return map;
+  }
+
+  function openDialog(sy: number, sm: number, sd: number) {
+    container.querySelector('.cal-dialog-overlay')?.remove();
+
+    const eventMap = buildEventMap();
+    const key = `${sy}-${sm}-${sd}`;
+    const dayEvents = (eventMap.get(key) || []).sort((a, b) => a.timestamp - b.timestamp);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cal-dialog-overlay';
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) { overlay.remove(); render(); }
+    });
+
+    const dialog = document.createElement('div');
+    dialog.className = 'cal-dialog cde-window';
+
+    /* Title bar */
+    const titlebar = document.createElement('div');
+    titlebar.className = 'cal-dialog-titlebar';
+
+    const closeBtn = document.createElement('span');
+    closeBtn.className = 'cal-dialog-close';
+    closeBtn.textContent = '×';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', () => { overlay.remove(); render(); });
+
+    const titleText = document.createElement('span');
+    titleText.className = 'cde-titlebar-title';
+    titleText.textContent = `${MONTHS[sm]} ${sd}, ${sy}`;
+
+    titlebar.appendChild(closeBtn);
+    titlebar.appendChild(titleText);
+    dialog.appendChild(titlebar);
+
+    /* Body */
+    const body = document.createElement('div');
+    body.className = 'cal-dialog-body';
+    dialog.appendChild(body);
+
+    /* Event list */
+    const eventList = document.createElement('div');
+    eventList.className = 'cal-event-list';
+    body.appendChild(eventList);
+
+    function renderList() {
+      eventList.innerHTML = '';
+      if (dayEvents.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'cal-empty';
+        empty.textContent = 'No events for this day.';
+        eventList.appendChild(empty);
+        return;
+      }
+      dayEvents.forEach(ev => {
+        const row = document.createElement('div');
+        row.className = 'cal-event-row';
+
+        const dot = document.createElement('span');
+        dot.className = 'cal-event-dot';
+        dot.style.background = ev.color;
+
+        const info = document.createElement('div');
+        info.className = 'cal-event-info';
+
+        const title = document.createElement('span');
+        title.className = 'cal-event-title';
+        title.textContent = ev.title;
+
+        const time = document.createElement('span');
+        time.className = 'cal-event-time';
+        time.textContent = fmtTime(ev.timestamp);
+
+        info.appendChild(title);
+        info.appendChild(time);
+
+        const del = document.createElement('button');
+        del.className = 'cal-event-del';
+        del.textContent = '×';
+        del.title = 'Delete';
+      del.onclick = () => {
+        const idx = data.events.indexOf(ev);
+        if (idx >= 0) data.events.splice(idx, 1);
+        dayEvents.splice(dayEvents.indexOf(ev), 1);
+        scheduleSave();
+        renderList();
+        render();
+      };
+
+      row.appendChild(dot);
+      row.appendChild(info);
+      row.appendChild(del);
+      eventList.appendChild(row);
+      });
+    }
+    renderList();
+
+    /* Add form */
+    const form = document.createElement('div');
+    form.className = 'cal-add-form';
+
+    const formTitle = document.createElement('div');
+    formTitle.className = 'cal-form-title';
+    formTitle.textContent = 'Add Event';
+    form.appendChild(formTitle);
+
+    const titleIn = document.createElement('input');
+    titleIn.className = 'cal-input';
+    titleIn.type = 'text';
+    titleIn.placeholder = 'Event title';
+    titleIn.maxLength = 80;
+    form.appendChild(titleIn);
+
+    const rowEl = document.createElement('div');
+    rowEl.className = 'cal-form-row';
+
+    const now = new Date();
+    const timeIn = document.createElement('input');
+    timeIn.className = 'cal-input cal-input--time';
+    timeIn.type = 'time';
+    timeIn.value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+    const colorPicker = document.createElement('div');
+    colorPicker.className = 'cal-colors';
+
+    let selectedColor = COLORS[0];
+    COLORS.forEach((c, i) => {
+      const sw = document.createElement('button');
+      sw.className = 'cal-swatch' + (i === 0 ? ' active' : '');
+      sw.style.background = c;
+      sw.title = c;
+      sw.onclick = () => {
+        colorPicker.querySelectorAll('.cal-swatch').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+        selectedColor = c;
+      };
+      colorPicker.appendChild(sw);
+    });
+
+    rowEl.appendChild(timeIn);
+    rowEl.appendChild(colorPicker);
+    form.appendChild(rowEl);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'cal-add-btn';
+    addBtn.textContent = 'Add';
+    form.appendChild(addBtn);
+
+    addBtn.addEventListener('click', () => {
+      const title = titleIn.value.trim();
+      if (!title) { titleIn.focus(); return; }
+      const [h, m] = timeIn.value.split(':').map(Number);
+      const ts = Math.floor(new Date(sy, sm, sd, h || 0, m || 0).getTime() / 1000);
+      const ev: DiaryEvent = { id: nanoid(), title, timestamp: ts, color: selectedColor };
+      data.events.push(ev);
+      dayEvents.push(ev);
+      dayEvents.sort((a, b) => a.timestamp - b.timestamp);
+      scheduleSave();
+      titleIn.value = '';
+      renderList();
+      render(); // refresh dots on grid
+    });
+
+    titleIn.addEventListener('keydown', e => { if (e.key === 'Enter') addBtn.click(); });
+
+    body.appendChild(form);
+    overlay.appendChild(dialog);
+    container.appendChild(overlay);
+    setTimeout(() => titleIn.focus(), 50);
+  }
 
   function render() {
     container.innerHTML = '';
     container.className = 'cal-root';
+    container.style.position = 'relative';
 
-    // ── Header ──────────────────────────────────────────────────────────────
+    /* ── Header ─────────────────────────────────────────────────────────── */
     const header = document.createElement('div');
     header.className = 'cal-header';
 
     const prevBtn = document.createElement('button');
     prevBtn.className = 'cal-nav';
-    prevBtn.textContent = '←';
+    prevBtn.textContent = '◁';
+    prevBtn.title = 'Previous month';
     prevBtn.onclick = () => {
       viewMonth--;
       if (viewMonth < 0) { viewMonth = 11; viewYear--; }
-      selectedDay = null;
       render();
     };
 
     const nextBtn = document.createElement('button');
     nextBtn.className = 'cal-nav';
-    nextBtn.textContent = '→';
+    nextBtn.textContent = '▷';
+    nextBtn.title = 'Next month';
     nextBtn.onclick = () => {
       viewMonth++;
       if (viewMonth > 11) { viewMonth = 0; viewYear++; }
-      selectedDay = null;
       render();
     };
 
-    const monthLabel = document.createElement('span');
-    monthLabel.className = 'cal-month-label';
-    monthLabel.textContent = `${MONTHS[viewMonth]} ${viewYear}`;
+    const label = document.createElement('span');
+    label.className = 'cal-month-label';
+    label.textContent = `${MONTHS[viewMonth]} ${viewYear}`;
 
     header.appendChild(prevBtn);
-    header.appendChild(monthLabel);
+    header.appendChild(label);
     header.appendChild(nextBtn);
     container.appendChild(header);
 
-    // ── Body: grid + side panel ──────────────────────────────────────────────
-    const body = document.createElement('div');
-    body.className = 'cal-body';
-    container.appendChild(body);
-
-    // Grid area
+    /* ── Grid wrap ───────────────────────────────────────────────────────── */
     const gridWrap = document.createElement('div');
     gridWrap.className = 'cal-grid-wrap';
-    body.appendChild(gridWrap);
+    container.appendChild(gridWrap);
 
-    // Day-of-week headers
+    /* Day-of-week row */
     const dowRow = document.createElement('div');
     dowRow.className = 'cal-dow-row';
     DAYS.forEach(d => {
@@ -93,208 +254,66 @@ export function renderCalendar(container: HTMLElement): void {
     });
     gridWrap.appendChild(dowRow);
 
-    // Calculate grid
+    /* Calculate grid dimensions */
     const firstDay = new Date(viewYear, viewMonth, 1);
-    const lastDay  = new Date(viewYear, viewMonth + 1, 0);
-    const startDow = (firstDay.getDay() + 6) % 7; // 0=Mon
-    const daysInMonth = lastDay.getDate();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const startDow = (firstDay.getDay() + 6) % 7; // 0 = Monday
+    const numRows = Math.ceil((startDow + daysInMonth) / 7);
 
-    // Build event map: date key → events
-    const eventMap = new Map<string, DiaryEvent[]>();
-    for (const ev of data.events) {
-      const [y, m, d] = ymd(ev.timestamp);
-      const key = `${y}-${m}-${d}`;
-      if (!eventMap.has(key)) eventMap.set(key, []);
-      eventMap.get(key)!.push(ev);
-    }
-
+    const eventMap = buildEventMap();
     const today = new Date();
     const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
 
+    /* Grid */
     const grid = document.createElement('div');
     grid.className = 'cal-grid';
+    grid.style.gridTemplateRows = `repeat(${numRows}, 1fr)`;
+    gridWrap.appendChild(grid);
 
-    // Filler cells before month start
+    /* Filler cells */
     for (let i = 0; i < startDow; i++) {
       const cell = document.createElement('div');
       cell.className = 'cal-cell cal-cell--filler';
       grid.appendChild(cell);
     }
 
+    /* Day cells */
     for (let day = 1; day <= daysInMonth; day++) {
       const key = `${viewYear}-${viewMonth}-${day}`;
       const events = eventMap.get(key) || [];
       const isToday = key === todayKey;
-      const isSelected = selectedDay
-        && selectedDay[0] === viewYear
-        && selectedDay[1] === viewMonth
-        && selectedDay[2] === day;
 
       const cell = document.createElement('div');
-      cell.className = 'cal-cell' +
-        (isToday ? ' cal-cell--today' : '') +
-        (isSelected ? ' cal-cell--selected' : '');
+      cell.className = 'cal-cell' + (isToday ? ' cal-cell--today' : '');
 
       const num = document.createElement('span');
       num.className = 'cal-day-num';
       num.textContent = String(day);
       cell.appendChild(num);
 
-      if (events.length > 0) {
-        const dots = document.createElement('div');
-        dots.className = 'cal-dots';
-        events.slice(0, 4).forEach(ev => {
-          const dot = document.createElement('span');
-          dot.className = 'cal-dot';
-          dot.style.background = ev.color;
-          dots.appendChild(dot);
-        });
-        if (events.length > 4) {
-          const more = document.createElement('span');
-          more.className = 'cal-dot-more';
-          more.textContent = `+${events.length - 4}`;
-          dots.appendChild(more);
-        }
-        cell.appendChild(dots);
-      }
+      /* Show up to 3 event chips, then dots for overflow */
+      const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
+      const showChips = sorted.slice(0, 2);
+      const overflow = sorted.length - showChips.length;
 
-      cell.addEventListener('click', () => {
-        selectedDay = [viewYear, viewMonth, day];
-        render();
+      showChips.forEach(ev => {
+        const chip = document.createElement('div');
+        chip.className = 'cal-event-chip';
+        chip.style.background = ev.color;
+        chip.title = `${ev.title} – ${fmtTime(ev.timestamp)}`;
+        chip.textContent = ev.title;
+        cell.appendChild(chip);
       });
 
+      if (overflow > 0) {
+        const more = document.createElement('div');
+        more.className = 'cal-dot-more';
+        more.textContent = `+${overflow} more`;
+        cell.appendChild(more);
+      }
+
+      cell.addEventListener('click', () => openDialog(viewYear, viewMonth, day));
       grid.appendChild(cell);
-    }
-    gridWrap.appendChild(grid);
-
-    // ── Side panel ───────────────────────────────────────────────────────────
-    if (selectedDay) {
-      const [sy, sm, sd] = selectedDay;
-      const key = `${sy}-${sm}-${sd}`;
-      const dayEvents = (eventMap.get(key) || []).sort((a, b) => a.timestamp - b.timestamp);
-
-      const panel = document.createElement('div');
-      panel.className = 'cal-panel';
-      body.appendChild(panel);
-
-      const panelTitle = document.createElement('div');
-      panelTitle.className = 'cal-panel-title';
-      panelTitle.textContent = `${MONTHS[sm]} ${sd}, ${sy}`;
-      panel.appendChild(panelTitle);
-
-      // Existing events
-      const eventList = document.createElement('div');
-      eventList.className = 'cal-event-list';
-      panel.appendChild(eventList);
-
-      function renderEventList() {
-        eventList.innerHTML = '';
-        if (dayEvents.length === 0) {
-          const empty = document.createElement('div');
-          empty.className = 'cal-empty';
-          empty.textContent = 'No events';
-          eventList.appendChild(empty);
-          return;
-        }
-        dayEvents.forEach(ev => {
-          const row = document.createElement('div');
-          row.className = 'cal-event-row';
-
-          const dot = document.createElement('span');
-          dot.className = 'cal-event-dot';
-          dot.style.background = ev.color;
-
-          const info = document.createElement('div');
-          info.className = 'cal-event-info';
-
-          const title = document.createElement('span');
-          title.className = 'cal-event-title';
-          title.textContent = ev.title;
-
-          const time = document.createElement('span');
-          time.className = 'cal-event-time';
-          time.textContent = fmtTime(ev.timestamp);
-
-          info.appendChild(title);
-          info.appendChild(time);
-
-          const del = document.createElement('button');
-          del.className = 'cal-event-del';
-          del.textContent = '×';
-          del.title = 'Delete event';
-          del.onclick = () => {
-            const idx = data.events.indexOf(ev);
-            if (idx >= 0) {
-              data.events.splice(idx, 1);
-              dayEvents.splice(dayEvents.indexOf(ev), 1);
-              scheduleSave();
-              renderEventList();
-            }
-          };
-
-          row.appendChild(dot);
-          row.appendChild(info);
-          row.appendChild(del);
-          eventList.appendChild(row);
-        });
-      }
-      renderEventList();
-
-      // Add event form
-      const form = document.createElement('div');
-      form.className = 'cal-add-form';
-      form.innerHTML = `
-        <div class="cal-form-title">Add event</div>
-        <input class="cal-input" id="ev-title" type="text" placeholder="Event title" maxlength="80" />
-        <div class="cal-form-row">
-          <input class="cal-input cal-input--time" id="ev-time" type="time" value="${
-            String(new Date().getHours()).padStart(2,'0') + ':' + String(new Date().getMinutes()).padStart(2,'0')
-          }" />
-          <div class="cal-colors" id="ev-colors"></div>
-        </div>
-        <button class="cal-add-btn" id="ev-add">Add event</button>
-      `;
-      panel.appendChild(form);
-
-      let selectedColor = DEFAULT_COLORS[0];
-      const colorPicker = form.querySelector<HTMLElement>('#ev-colors')!;
-      DEFAULT_COLORS.forEach((c, i) => {
-        const swatch = document.createElement('button');
-        swatch.className = 'cal-swatch' + (i === 0 ? ' active' : '');
-        swatch.style.background = c;
-        swatch.onclick = () => {
-          colorPicker.querySelectorAll('.cal-swatch').forEach(s => s.classList.remove('active'));
-          swatch.classList.add('active');
-          selectedColor = c;
-        };
-        colorPicker.appendChild(swatch);
-      });
-
-      const addBtn = form.querySelector<HTMLButtonElement>('#ev-add')!;
-      const titleInput = form.querySelector<HTMLInputElement>('#ev-title')!;
-      const timeInput  = form.querySelector<HTMLInputElement>('#ev-time')!;
-
-      addBtn.addEventListener('click', () => {
-        const title = titleInput.value.trim();
-        if (!title) { titleInput.focus(); return; }
-
-        const [hours, minutes] = timeInput.value.split(':').map(Number);
-        const ts = Math.floor(new Date(sy, sm, sd, hours || 0, minutes || 0).getTime() / 1000);
-
-        const ev: DiaryEvent = { id: nanoid(), title, timestamp: ts, color: selectedColor };
-        data.events.push(ev);
-        dayEvents.push(ev);
-        dayEvents.sort((a, b) => a.timestamp - b.timestamp);
-        scheduleSave();
-
-        titleInput.value = '';
-        renderEventList();
-        titleInput.focus();
-      });
-
-      titleInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') addBtn.click();
-      });
     }
   }
 

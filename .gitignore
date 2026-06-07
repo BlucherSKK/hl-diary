@@ -1,3 +1,5 @@
 /target
 client.html
 *.js
+*.diary
+/diarys
