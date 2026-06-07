@@ -1,6 +1,7 @@
 import { session, scheduleSave } from '../state';
 import type { Thread, ThreadMessage, MessageImage } from '../types';
-import { nanoid, unixNow, fmtDateTime, fmtDate, esc, readFileB64 } from '../utils';
+import { nanoid, unixNow, fmtDateTime, fmtDate, esc } from '../utils';
+import { compressWithDialog } from '../compress';
 
 export function renderThreads(container: HTMLElement): void {
   if (!session) return;
@@ -208,11 +209,11 @@ export function renderThreads(container: HTMLElement): void {
       .find(f => f.type.startsWith('image/'));
       if (!file) return;
       try {
-        const { data: b64, mime } = await readFileB64(file);
-        pendingImage = { data: b64, mime, scale: 1.0 };
+        const result = await compressWithDialog(file);
+        pendingImage  = { data: result.data, mime: result.mime, scale: 1.0 };
         updateImgPreview();
       } catch {
-        alert('Failed to read image');
+        alert('Failed to process image');
       }
     }
 

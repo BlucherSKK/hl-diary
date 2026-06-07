@@ -3,6 +3,7 @@ import { clearSession, onSaveStatus, doSave, type SaveStatus } from './state';
 import { renderCalendar } from './views/calendar';
 import { renderArticles } from './views/articles';
 import { renderThreads } from './views/threads';
+import { rep } from './languge';
 
 type View = 'calendar' | 'articles' | 'threads';
 
@@ -35,9 +36,9 @@ export function startApp(container: HTMLElement, session: Session): void {
   sidebar.appendChild(nav);
 
   const NAV_ITEMS: { id: View; label: string; icon: string }[] = [
-    { id: 'calendar', label: 'Calendar',  icon: '◷' },
-    { id: 'articles', label: 'Articles',  icon: '◫' },
-    { id: 'threads',  label: 'Threads',   icon: '◱' },
+    { id: 'calendar', label: rep('celendar'),  icon: '◷' },
+    { id: 'articles', label: rep('articles'),  icon: '◫' },
+    { id: 'threads',  label: rep('threads'),   icon: '◱' },
   ];
 
   function setView(v: View) {

@@ -1,81 +1,117 @@
 import { session, scheduleSave } from '../state';
 import type { Article, ArticleImage } from '../types';
-import { nanoid, unixNow, fmtDate, esc, insertAtCursor, readFileB64 } from '../utils';
+import { nanoid, unixNow, fmtDate, esc, insertAtCursor } from '../utils';
+import { compressWithDialog } from '../compress';
+import { rep } from '../languge';
 
-// ── Body renderer ────────────────────────────────────────────────────────────
+// ── Inline processor (links + inline images within a single line) ────────────
 
-/**
- * Render an article body to HTML.
- * Syntax:
- *   [[Title]]          → link to article
- *   {{img:ID|SCALE}}   → embedded image
- *   newlines           → <br> tags
- */
-function renderBody(
-  body: string,
+function processInline(
+  text: string,
+  parent: HTMLElement,
   images: Record<string, ArticleImage>,
-  onLink: (title: string) => void,
-): HTMLElement {
-  const out = document.createElement('div');
-  out.className = 'art-preview-body';
-
-  // Split on image and link markers
-  const parts = body.split(/({{img:[^}]+}}|\[\[[^\]]+\]\])/g);
-
-  let currentP = document.createElement('p');
-  out.appendChild(currentP);
-
-  const flushLine = () => {
-    currentP = document.createElement('p');
-    out.appendChild(currentP);
-  };
-
+  onLink: (t: string) => void,
+) {
+  const parts = text.split(/({{img:[^}]+}}|\[\[[^\]]+\]\])/g);
   for (const part of parts) {
-    const imgMatch = part.match(/^{{img:([^|]+)\|([^}]+)}}$/);
-    if (imgMatch) {
-      const [, id, scaleStr] = imgMatch;
-      const scale = parseFloat(scaleStr) || 1.0;
-      const img = images[id];
+    const lm = part.match(/^\[\[(.+)\]\]$/);
+    if (lm) {
+      const span = document.createElement('span');
+      span.className = 'art-link';
+      span.textContent = lm[1];
+      span.addEventListener('click', () => onLink(lm[1]));
+      parent.appendChild(span);
+      continue;
+    }
+    const im = part.match(/^{{img:([^|]+)\|([^}]+)}}$/);
+    if (im) {
+      const img = images[im[1]];
       if (img) {
         const el = document.createElement('img');
         el.src = `data:${img.mime};base64,${img.data}`;
         el.className = 'art-img';
-        el.style.maxWidth = `${Math.round(scale * 100)}%`;
-        el.title = `Scale: ${scale}`;
-        flushLine();
-        out.appendChild(el);
-        flushLine();
-      } else {
-        const missing = document.createElement('span');
-        missing.className = 'art-missing-img';
-        missing.textContent = `[image not found: ${id}]`;
-        currentP.appendChild(missing);
+        el.style.maxWidth = `${Math.round((parseFloat(im[2]) || 1) * 100)}%`;
+        parent.appendChild(el);
       }
       continue;
     }
-
-    const linkMatch = part.match(/^\[\[(.+)\]\]$/);
-    if (linkMatch) {
-      const title = linkMatch[1];
-      const span = document.createElement('span');
-      span.className = 'art-link';
-      span.textContent = title;
-      span.addEventListener('click', () => onLink(title));
-      currentP.appendChild(span);
-      continue;
+    parent.appendChild(document.createTextNode(part));
+    }
     }
 
-    // Plain text — handle newlines
-    const lines = part.split('\n');
-    lines.forEach((line, i) => {
-      if (i > 0) {
-        out.appendChild(currentP);
-        flushLine();
+    // ── Body renderer ─────────────────────────────────────────────────────────────
+    //
+    //  # H1   ## H2   ### H3   (Markdown-style headings, line must start with #)
+    //  {{img:ID|SCALE}}         standalone image (whole line)
+    //  [[Title]]                link to another article
+    //  everything else          plain text, newlines preserved via pre-wrap
+
+    function renderBody(
+      body: string,
+      images: Record<string, ArticleImage>,
+      onLink: (title: string) => void,
+    ): HTMLElement {
+      const out = document.createElement('div');
+      out.className = 'art-preview-body';
+
+      const lines = body.split('\n');
+      let textBlock: HTMLDivElement | null = null;
+
+      function flushText() {
+        if (textBlock) { out.appendChild(textBlock); textBlock = null; }
       }
-      if (line) currentP.appendChild(document.createTextNode(line));
+
+      function getTextBlock(): HTMLDivElement {
+        if (!textBlock) {
+          textBlock = document.createElement('div');
+          textBlock.className = 'art-text-block';
+        }
+        return textBlock;
+      }
+
+      lines.forEach((line, idx) => {
+        const isLast = idx === lines.length - 1;
+
+        // Heading
+        const hm = line.match(/^(#{1,3}) (.*)$/);
+        if (hm) {
+          flushText();
+          const level = hm[1].length as 1 | 2 | 3;
+          const el = document.createElement(`h${level}`) as HTMLHeadingElement;
+          el.className = `art-h${level}`;
+          processInline(hm[2], el, images, onLink);
+          out.appendChild(el);
+          return;
+        }
+
+        // Standalone image (entire line is {{img:...}})
+        const imgm = line.match(/^{{img:([^|]+)\|([^}]+)}}$/);
+        if (imgm) {
+          flushText();
+          const img = images[imgm[1]];
+          if (img) {
+            const el = document.createElement('img');
+            el.src = `data:${img.mime};base64,${img.data}`;
+            el.className = 'art-img';
+            el.style.maxWidth = `${Math.round((parseFloat(imgm[2]) || 1) * 100)}%`;
+            out.appendChild(el);
+          } else {
+            const miss = document.createElement('span');
+            miss.className = 'art-missing-img';
+            miss.textContent = `[image not found: ${imgm[1]}]`;
+            getTextBlock().appendChild(miss);
+            if (!isLast) getTextBlock().appendChild(document.createTextNode('\n'));
+          }
+          return;
+        }
+
+        // Plain text line — stays in text block (pre-wrap preserves spacing)
+        const tb = getTextBlock();
+        processInline(line, tb, images, onLink);
+        if (!isLast) tb.appendChild(document.createTextNode('\n'));
     });
-      }
 
+      flushText();
       return out;
       }
 
@@ -86,7 +122,7 @@ function renderBody(
         const data = session.data;
 
         let selectedId: string | null = null;
-        let editMode = true;
+        let editMode   = false;           // default: preview
         let searchQuery = '';
 
         function getArticle(): Article | null {
@@ -97,7 +133,7 @@ function renderBody(
           container.innerHTML = '';
           container.className = 'art-root';
 
-          // ── Left pane: article list ───────────────────────────────────────────
+          // ── Sidebar ─────────────────────────────────────────────────────────────
           const sidebar = document.createElement('div');
           sidebar.className = 'art-sidebar';
           container.appendChild(sidebar);
@@ -110,27 +146,19 @@ function renderBody(
           searchInput.type = 'text';
           searchInput.placeholder = 'Search…';
           searchInput.value = searchQuery;
-          searchInput.addEventListener('input', () => {
-            searchQuery = searchInput.value;
-            renderList();
-          });
+          searchInput.addEventListener('input', () => { searchQuery = searchInput.value; renderList(); });
 
           const newBtn = document.createElement('button');
           newBtn.className = 'art-new-btn';
           newBtn.textContent = '+ New';
           newBtn.addEventListener('click', () => {
-            const title = `Untitled ${data.articles.length + 1}`;
             const article: Article = {
-              id: nanoid(),
-                                  title,
-                                  body: '',
-                                  images: {},
-                                  createdAt: unixNow(),
-                                  updatedAt: unixNow(),
+              id: nanoid(), title: `${rep('untitled')} ${data.articles.length + 1}`,
+                                  body: '', images: {}, createdAt: unixNow(), updatedAt: unixNow(),
             };
             data.articles.push(article);
             selectedId = article.id;
-            editMode = true;
+            editMode   = true;          // new article opens in edit mode
             scheduleSave();
             render();
           });
@@ -158,9 +186,7 @@ function renderBody(
               return;
             }
 
-            // Sort by updatedAt desc
-            const sorted = [...filtered].sort((a, b) => b.updatedAt - a.updatedAt);
-            sorted.forEach(art => {
+            [...filtered].sort((a, b) => b.updatedAt - a.updatedAt).forEach(art => {
               const item = document.createElement('div');
               item.className = 'art-list-item' + (art.id === selectedId ? ' active' : '');
               item.innerHTML = `
@@ -169,7 +195,7 @@ function renderBody(
               `;
               item.addEventListener('click', () => {
                 selectedId = art.id;
-                editMode = true;
+                editMode   = false;     // always open in preview
                 render();
               });
               list.appendChild(item);
@@ -177,24 +203,21 @@ function renderBody(
           }
           renderList();
 
-          // ── Right pane: editor ────────────────────────────────────────────────
+          // ── Main area ────────────────────────────────────────────────────────────
           const main = document.createElement('div');
           main.className = 'art-main';
           container.appendChild(main);
 
           const article = getArticle();
           if (!article) {
-            const placeholder = document.createElement('div');
-            placeholder.className = 'art-placeholder';
-            placeholder.innerHTML = `
-            <span class="art-placeholder-icon">◈</span>
-            <p>Select an article or create a new one</p>
-            `;
-            main.appendChild(placeholder);
+            const ph = document.createElement('div');
+            ph.className = 'art-placeholder';
+            ph.innerHTML = `<span class="art-placeholder-icon">◈</span><p>Select an article or create a new one</p>`;
+            main.appendChild(ph);
             return;
           }
 
-          // Title
+          // ── Title row ────────────────────────────────────────────────────────────
           const titleRow = document.createElement('div');
           titleRow.className = 'art-title-row';
 
@@ -203,29 +226,17 @@ function renderBody(
           titleInput.type = 'text';
           titleInput.value = article.title;
           titleInput.placeholder = 'Article title';
-          titleInput.addEventListener('change', () => {
-            const newTitle = titleInput.value.trim() || 'Untitled';
-            // Check uniqueness
-            const conflict = data.articles.find(a => a.id !== article.id && a.title === newTitle);
-            if (conflict) {
-              titleInput.value = article.title;
-              return;
-            }
-            article.title = newTitle;
-            article.updatedAt = unixNow();
-            scheduleSave();
-            renderList();
-          });
+          titleInput.readOnly = !editMode;
+          if (!editMode) titleInput.style.pointerEvents = 'none';
 
           const delBtn = document.createElement('button');
           delBtn.className = 'art-del-btn';
           delBtn.textContent = 'Delete';
-          delBtn.title = 'Delete this article';
           delBtn.addEventListener('click', () => {
             if (!confirm(`Delete "${article.title}"?`)) return;
-            const idx = data.articles.indexOf(article);
-            if (idx >= 0) data.articles.splice(idx, 1);
+            data.articles.splice(data.articles.indexOf(article), 1);
             selectedId = null;
+            editMode   = false;
             scheduleSave();
             render();
           });
@@ -234,28 +245,64 @@ function renderBody(
           titleRow.appendChild(delBtn);
           main.appendChild(titleRow);
 
-          // Toolbar
+          // ── Toolbar ──────────────────────────────────────────────────────────────
           const toolbar = document.createElement('div');
           toolbar.className = 'art-toolbar';
 
-          const previewBtn = document.createElement('button');
-          previewBtn.className = 'art-tool-btn' + (editMode ? '' : ' active');
-          previewBtn.textContent = editMode ? 'Preview' : 'Edit';
-          previewBtn.addEventListener('click', () => {
-            editMode = !editMode;
-            render();
-          });
-
-          toolbar.appendChild(previewBtn);
-
-          // Info text
           const infoSpan = document.createElement('span');
           infoSpan.className = 'art-toolbar-info';
           infoSpan.textContent = `Created ${fmtDate(article.createdAt)}`;
+
+          if (editMode) {
+            // Save button
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'art-tool-btn art-save-btn';
+            saveBtn.textContent = 'Save';
+            saveBtn.addEventListener('click', () => {
+              const newTitle = titleInput.value.trim() || 'Untitled';
+              // Check title uniqueness
+              const conflict = data.articles.find(a => a.id !== article.id && a.title === newTitle);
+              if (conflict) {
+                titleInput.value = article.title;
+                titleInput.focus();
+                return;
+              }
+              article.title     = newTitle;
+              article.body      = (textarea?.value ?? article.body);
+              article.updatedAt = unixNow();
+              editMode          = false;
+              scheduleSave();
+              render();
+            });
+
+            // Cancel button
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'art-tool-btn';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.addEventListener('click', () => {
+              titleInput.value = article.title;
+              editMode = false;
+              render();
+            });
+
+            toolbar.appendChild(saveBtn);
+            toolbar.appendChild(cancelBtn);
+          } else {
+            // Edit button
+            const editBtn = document.createElement('button');
+            editBtn.className = 'art-tool-btn';
+            editBtn.textContent = 'Edit';
+            editBtn.addEventListener('click', () => {
+              editMode = true;
+              render();
+            });
+            toolbar.appendChild(editBtn);
+          }
+
           toolbar.appendChild(infoSpan);
           main.appendChild(toolbar);
 
-          // Editor / preview area
+          // ── Editor / Preview ─────────────────────────────────────────────────────
           let textarea: HTMLTextAreaElement | null = null;
 
           if (editMode) {
@@ -270,64 +317,58 @@ function renderBody(
             textarea = document.createElement('textarea');
             textarea.className = 'art-editor';
             textarea.value = article.body;
-            textarea.placeholder = 'Write your article…\n\nTip: [[Link to Article]] and {{img:id|1.0}}\nDrag & drop an image to insert it.';
+            textarea.placeholder =
+            'Write your article…\n\n# Heading 1\n## Heading 2\n### Heading 3\n[[Link to Article]]\n{{img:id|1.0}}\n\nDrag & drop an image to embed it.';
             textarea.spellcheck = false;
-            textarea.addEventListener('input', () => {
-              article.body = textarea!.value;
-              article.updatedAt = unixNow();
-              scheduleSave();
+            // No auto-save — Save button commits
+
+            // Ctrl+S / Cmd+S → Save
+            textarea.addEventListener('keydown', e => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                toolbar.querySelector<HTMLButtonElement>('.art-save-btn')?.click();
+              }
             });
 
-            // ── Drag & drop ──────────────────────────────────────────────────
+            // Drag & drop
             async function insertDroppedImage(file: File) {
               try {
-                const { data: b64, mime } = await readFileB64(file);
-                const imgId = nanoid();
+                const result = await compressWithDialog(file);
+                const imgId  = nanoid();
                 const scaleStr = prompt('Image scale (0.1 – 2.0):', '1.0') || '1.0';
-                const scale = Math.max(0.1, Math.min(2.0, parseFloat(scaleStr) || 1.0));
-                article.images[imgId] = { data: b64, mime };
+                const scale  = Math.max(0.1, Math.min(2.0, parseFloat(scaleStr) || 1.0));
+                article.images[imgId] = { data: result.data, mime: result.mime };
                 insertAtCursor(textarea!, `{{img:${imgId}|${scale}}}`);
-                article.body = textarea!.value;
-                article.updatedAt = unixNow();
-                scheduleSave();
+                // body committed on Save, not here
               } catch {
-                alert('Failed to load image');
+                alert('Failed to process image');
               }
             }
 
-            textarea.addEventListener('dragover', (e) => {
-              const hasImage = Array.from(e.dataTransfer?.items || [])
-              .some(i => i.kind === 'file' && i.type.startsWith('image/'));
-              if (!hasImage) return;
+            textarea.addEventListener('dragover', e => {
+              if (!Array.from(e.dataTransfer?.items || []).some(i => i.kind === 'file' && i.type.startsWith('image/'))) return;
               e.preventDefault();
               editorWrap.classList.add('drop-active');
             });
-
-            textarea.addEventListener('dragleave', (e) => {
-              if (!editorWrap.contains(e.relatedTarget as Node)) {
+            textarea.addEventListener('dragleave', e => {
+              if (!editorWrap.contains(e.relatedTarget as Node)) editorWrap.classList.remove('drop-active');
+            });
+              textarea.addEventListener('drop', async e => {
+                e.preventDefault();
                 editorWrap.classList.remove('drop-active');
-              }
-            });
+                const file = Array.from(e.dataTransfer?.files || []).find(f => f.type.startsWith('image/'));
+                if (file) await insertDroppedImage(file);
+              });
 
-            textarea.addEventListener('drop', async (e) => {
-              e.preventDefault();
-              editorWrap.classList.remove('drop-active');
-              const file = Array.from(e.dataTransfer?.files || [])
-              .find(f => f.type.startsWith('image/'));
-              if (file) await insertDroppedImage(file);
-            });
+                editorWrap.appendChild(textarea);
+                main.appendChild(editorWrap);
+                setTimeout(() => textarea?.focus(), 50);
 
-              editorWrap.appendChild(textarea);
-              main.appendChild(editorWrap);
-              setTimeout(() => textarea?.focus(), 50);
           } else {
+            // Preview
             const preview = renderBody(article.body, article.images, (linkTitle) => {
               const target = data.articles.find(a => a.title === linkTitle);
-              if (target) {
-                selectedId = target.id;
-                editMode = true;
-                render();
-              }
+              if (target) { selectedId = target.id; editMode = false; render(); }
             });
             main.appendChild(preview);
           }

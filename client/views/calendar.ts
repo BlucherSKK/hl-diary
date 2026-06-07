@@ -291,17 +291,17 @@ export function renderCalendar(container: HTMLElement): void {
       num.textContent = String(day);
       cell.appendChild(num);
 
-      /* Show up to 3 event chips, then dots for overflow */
+      /* Show up to 5 events sorted by time, then "+N more" */
       const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
-      const showChips = sorted.slice(0, 2);
+      const showChips = sorted.slice(0, 5);
       const overflow = sorted.length - showChips.length;
 
       showChips.forEach(ev => {
         const chip = document.createElement('div');
         chip.className = 'cal-event-chip';
         chip.style.background = ev.color;
-        chip.title = `${ev.title} – ${fmtTime(ev.timestamp)}`;
-        chip.textContent = ev.title;
+        chip.title = ev.title;
+        chip.textContent = `${fmtTime(ev.timestamp)} ${ev.title}`;
         cell.appendChild(chip);
       });
 
