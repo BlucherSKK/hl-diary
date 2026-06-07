@@ -1,7 +1,7 @@
 import type { Session } from '../state';
 import { setSession } from '../state';
 import { apiCreate, apiRead } from '../api';
-import { decryptDiary, encryptDiary, generateWriteKey, KEY_SIZE } from '../crypto';
+import { decryptDiary, encryptDiary, generateWriteKey } from '../crypto';
 import type { DiaryData } from '../types';
 
 type LoginCallback = (session: Session) => void;
@@ -13,46 +13,46 @@ export function renderLogin(container: HTMLElement, onLogin: LoginCallback): voi
   const card = document.createElement('div');
   card.className = 'login-card';
   card.innerHTML = `
-    <div class="login-logo">
-      <span class="login-logo-icon">◈</span>
-      <h1>Diary</h1>
-      <p class="login-subtitle">encrypted personal journal</p>
-    </div>
+  <div class="login-logo">
+  <span class="login-logo-icon">◈</span>
+  <h1>Diary</h1>
+  <p class="login-subtitle">encrypted personal journal</p>
+  </div>
 
-    <div class="login-tabs">
-      <button class="tab-btn tab-open active" data-tab="open">Open</button>
-      <button class="tab-btn tab-create" data-tab="create">New</button>
-    </div>
+  <div class="login-tabs">
+  <button class="tab-btn tab-open active" data-tab="open">Open</button>
+  <button class="tab-btn tab-create" data-tab="create">New</button>
+  </div>
 
-    <div class="login-form" id="login-form-open">
-      <div class="field">
-        <label>Username</label>
-        <input id="open-user" type="text" placeholder="your_diary" autocomplete="username" spellcheck="false" />
-      </div>
-      <div class="field">
-        <label>Password</label>
-        <input id="open-pass" type="password" placeholder="••••••••" autocomplete="current-password" />
-      </div>
-      <div class="login-error" id="open-error"></div>
-      <button class="login-btn" id="open-submit">Open diary</button>
-    </div>
+  <div class="login-form" id="login-form-open">
+  <div class="field">
+  <label>Username</label>
+  <input id="open-user" type="text" placeholder="your_diary" autocomplete="username" spellcheck="false" />
+  </div>
+  <div class="field">
+  <label>Password</label>
+  <input id="open-pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+  </div>
+  <div class="login-error" id="open-error"></div>
+  <button class="login-btn" id="open-submit">Open diary</button>
+  </div>
 
-    <div class="login-form hidden" id="login-form-create">
-      <div class="field">
-        <label>Username</label>
-        <input id="create-user" type="text" placeholder="new_diary" autocomplete="username" spellcheck="false" />
-      </div>
-      <div class="field">
-        <label>Password</label>
-        <input id="create-pass" type="password" placeholder="••••••••" autocomplete="new-password" />
-      </div>
-      <div class="field">
-        <label>Confirm password</label>
-        <input id="create-pass2" type="password" placeholder="••••••••" autocomplete="new-password" />
-      </div>
-      <div class="login-error" id="create-error"></div>
-      <button class="login-btn" id="create-submit">Create diary</button>
-    </div>
+  <div class="login-form hidden" id="login-form-create">
+  <div class="field">
+  <label>Username</label>
+  <input id="create-user" type="text" placeholder="new_diary" autocomplete="username" spellcheck="false" />
+  </div>
+  <div class="field">
+  <label>Password</label>
+  <input id="create-pass" type="password" placeholder="••••••••" autocomplete="new-password" />
+  </div>
+  <div class="field">
+  <label>Confirm password</label>
+  <input id="create-pass2" type="password" placeholder="••••••••" autocomplete="new-password" />
+  </div>
+  <div class="login-error" id="create-error"></div>
+  <button class="login-btn" id="create-submit">Create diary</button>
+  </div>
   `;
   container.appendChild(card);
 
@@ -95,9 +95,9 @@ export function renderLogin(container: HTMLElement, onLogin: LoginCallback): voi
 
     setLoading(openSubmit, true, 'Open diary');
     try {
-      const rawBytes = await apiRead(username);
-      // Server file layout: [128-byte write key][encrypted blob]
-      const encBlob = rawBytes.slice(KEY_SIZE);
+      // GET /api/diary/:username already strips the 128-byte write-key prefix,
+      // returning only the encrypted blob [salt(16)|iv(12)|ciphertext].
+      const encBlob = await apiRead(username);
       const { writeKey, data } = await decryptDiary(encBlob, password);
       const session: Session = { username, writeKey, password, data };
       setSession(session);

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 img_to_base64() {
     local file_path="$1"
@@ -31,15 +32,22 @@ replace_from_file() {
 mkdir -p ./tmp/tempapp
 cp -r ./client/* ./tmp/tempapp/
 
-cat ../client/style.css | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp && replace_from_file ./tmp/tempapp/index.html "##STYLE##" ./tmp/val.tmp
+# Inline CSS
+cat ./tmp/tempapp/style.css | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/index.html "##STYLE##" ./tmp/val.tmp
 
-#esbuild ./tmp/tempapp/main.ts --bundle --minify --sourcemap --target=es6 --outfile=./tmp/tempapp/app.min.js
+# Bundle TypeScript → JS
+esbuild ./tmp/tempapp/main.ts \
+    --bundle \
+    --minify \
+    --target=es2020 \
+    --outfile=./tmp/tempapp/bundle.js
 
-cat ./tmp/tempapp/bundle.js | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp && replace_from_file ./tmp/tempapp/index.html "##SCRIPT##" ./tmp/val.tmp
+# Inline JS
+cat ./tmp/tempapp/bundle.js | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/index.html "##SCRIPT##" ./tmp/val.tmp
 
 mv ./tmp/tempapp/index.html ./client.html
-
-
 rm -rf ./tmp
 
 cargo run
