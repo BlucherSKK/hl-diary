@@ -2,7 +2,6 @@ import { session, scheduleSave } from '../state';
 import type { Article, ArticleImage } from '../types';
 import { nanoid, unixNow, fmtDate, esc, insertAtCursor } from '../utils';
 import { compressWithDialog } from '../compress';
-import { rep } from '../languge';
 
 // ── Inline processor (links + inline images within a single line) ────────────
 
@@ -54,7 +53,7 @@ function processInline(
       const out = document.createElement('div');
       out.className = 'art-preview-body';
 
-      const lines = body.split('\n');
+      const lines = body.split('\n').map(l => l.endsWith('\r') ? l.slice(0, -1) : l);
       let textBlock: HTMLDivElement | null = null;
 
       function flushText() {
@@ -153,7 +152,7 @@ function processInline(
           newBtn.textContent = '+ New';
           newBtn.addEventListener('click', () => {
             const article: Article = {
-              id: nanoid(), title: `${rep('untitled')} ${data.articles.length + 1}`,
+              id: nanoid(), title: `Untitled ${data.articles.length + 1}`,
                                   body: '', images: {}, createdAt: unixNow(), updatedAt: unixNow(),
             };
             data.articles.push(article);
@@ -339,7 +338,10 @@ function processInline(
                 const scale  = Math.max(0.1, Math.min(2.0, parseFloat(scaleStr) || 1.0));
                 article.images[imgId] = { data: result.data, mime: result.mime };
                 insertAtCursor(textarea!, `{{img:${imgId}|${scale}}}`);
-                // body committed on Save, not here
+                // Commit body+images immediately so data isn't lost if page closes
+                article.body      = textarea!.value;
+                article.updatedAt = unixNow();
+                scheduleSave();
               } catch {
                 alert('Failed to process image');
               }
