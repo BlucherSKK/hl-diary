@@ -4,21 +4,23 @@ extern crate rocket;
 mod diary;
 mod guards;
 
-use rocket::fs::NamedFile;
-
 // ─── static SPA ─────────────────────────────────────────────────────────────
 
 /// Serve the SPA shell.
+use rocket::response::content::RawHtml;
+
 #[get("/")]
-async fn index() -> Option<NamedFile> {
-    NamedFile::open("/home/blucher/development/HL-dairy/client.html").await.ok()
+async fn index() -> RawHtml<&'static str> {
+    RawHtml(include_str!("../client.html"))
 }
 
 #[get("/favicon.ico")]
-async fn favi() -> Option<NamedFile> {
-
+async fn favi() -> (rocket::http::ContentType, &'static [u8]) {
+    (
+        rocket::http::ContentType::Icon,
+     include_bytes!("../favicon.ico"),
+    )
 }
-
 // ─── launch ─────────────────────────────────────────────────────────────────
 
 #[launch]
@@ -28,7 +30,7 @@ fn rocket() -> _ {
         .expect("Failed to create diaries/ directory");
 
     rocket::build()
-        .mount("/", routes![index, spa_fallback])
+        .mount("/", routes![index, favi])
         .mount(
             "/api/diary",
             routes![
