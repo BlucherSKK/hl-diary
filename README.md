@@ -42,13 +42,16 @@
 | Encryption | Web Crypto API · AES-256-GCM · PBKDF2 |
 | Container | Docker · Alpine Linux |
 
-### Running with Docker
+### Quick start with Docker
 
 ```bash
 docker run -d \
   -p 8000:8000 \
-  -v diary_data:/app/diaries \
-  your_username/hl-diary:latest
+  -e ROCKET_ADDRESS=0.0.0.0 \
+  -e ROCKET_PORT=8000 \
+  -v /srv/diaries:/app/diaries \
+  --restart unless-stopped \
+  bluchergk/hl-diary:latest
 ```
 
 Or with Docker Compose:
@@ -140,13 +143,16 @@ cargo run --release
 | Шифрование | Web Crypto API · AES-256-GCM · PBKDF2 |
 | Контейнер | Docker · Alpine Linux |
 
-### Запуск через Docker
+### Быстрый старт через Docker
 
 ```bash
 docker run -d \
   -p 8000:8000 \
-  -v diary_data:/app/diaries \
-  your_username/hl-diary:latest
+  -e ROCKET_ADDRESS=0.0.0.0 \
+  -e ROCKET_PORT=8000 \
+  -v /srv/diaries:/app/diaries \
+  --restart unless-stopped \
+  bluchergk/hl-diary:latest
 ```
 
 Или через Docker Compose:
