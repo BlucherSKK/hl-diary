@@ -14,11 +14,9 @@ async fn index() -> Option<NamedFile> {
     NamedFile::open("/home/blucher/development/HL-dairy/client.html").await.ok()
 }
 
-/// Catch-all fallback so client-side routing works after the SPA is wired up.
-/// Low rank (= low priority) so all API routes win first.
-#[get("/<_..>", rank = 20)]
-async fn spa_fallback() -> Option<NamedFile> {
-    NamedFile::open("/home/blucher/development/HL-dairy/client.html").await.ok()
+#[get("/favicon.ico")]
+async fn favi() -> Option<NamedFile> {
+
 }
 
 // ─── launch ─────────────────────────────────────────────────────────────────

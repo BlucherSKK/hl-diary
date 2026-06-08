@@ -39,7 +39,8 @@ replace_from_file ./tmp/tempapp/index.html "##STYLE##" ./tmp/val.tmp
 # Bundle TypeScript → JS
 esbuild ./tmp/tempapp/main.ts \
     --bundle \
-    --minify \
+    --minify-whitespace \
+    --minify-identifiers \
     --target=es2020 \
     --outfile=./tmp/tempapp/bundle.js
 
