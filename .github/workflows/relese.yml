@@ -1,0 +1,152 @@
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релиза (например: v1.0.0)'
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Фронтенд: TypeScript → client.html ───────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install esbuild
+        run: npm install -g esbuild
+
+      - name: Build client.html
+        shell: bash
+        run: |
+          set -e
+
+          img_to_base64() {
+            local file_path="$1"
+            if [[ ! -f "$file_path" ]]; then
+              echo "Ошибка: Файл '$file_path' не найден." >&2
+              return 1
+            fi
+            local mime_type=$(file -b --mime-type "$file_path")
+            local b64_data=$(base64 < "$file_path" | tr -d '\n' | tr -d '\r')
+            echo "data:$mime_type;base64,$b64_data"
+          }
+
+          replace_from_file() {
+            local TARGET_FILE="$1"
+            local LABEL="$2"
+            local DATA_FILE="$3"
+            if [ ! -f "$TARGET_FILE" ] || [ ! -f "$DATA_FILE" ]; then
+              echo "Ошибка: Файлы не найдены."
+              return 1
+            fi
+            export TEMP_LABEL="$LABEL"
+            perl -i -pe 'BEGIN{undef $/; open f, "<", "'"$DATA_FILE"'"; $v=<f>; $v =~ s/\R//g; close f} s/\Q$ENV{TEMP_LABEL}\E/$v/g' "$TARGET_FILE"
+            echo "${LABEL} заменена"
+            unset TEMP_LABEL
+          }
+
+          mkdir -p ./tmp/tempapp
+          cp -r ./client/* ./tmp/tempapp/
+
+          cat ./tmp/tempapp/style.css | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp
+          replace_from_file ./tmp/tempapp/index.html "##STYLE##" ./tmp/val.tmp
+
+          esbuild ./tmp/tempapp/main.ts \
+            --bundle \
+            --minify-whitespace \
+            --minify-identifiers \
+            --target=es2020 \
+            --outfile=./tmp/tempapp/bundle.js
+
+          cat ./tmp/tempapp/bundle.js | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp
+          replace_from_file ./tmp/tempapp/index.html "##SCRIPT##" ./tmp/val.tmp
+
+          mv ./tmp/tempapp/index.html ./client.html
+          rm -rf ./tmp
+
+      # ── Rust (musl) ───────────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get install -y musl-tools
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-musl-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-musl-
+
+      - name: Build binary (musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Copy binary to project root
+        run: cp target/x86_64-unknown-linux-musl/release/HL-dairy ./HL-dairy
+
+      # ── Docker Hub ────────────────────────────────────────────────────────
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/hl-diary:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/hl-diary:${{ github.event.inputs.tag }}
+
+      # ── GitHub Release ────────────────────────────────────────────────────
+      - name: Read RELEASE.txt
+        id: release_notes
+        shell: bash
+        run: |
+          # Строка 2 — заголовок релиза
+          TITLE=$(sed -n '2p' RELEASE.txt)
+
+          # Всё начиная с 4й строки — тело (3я строка считается разделителем)
+          BODY=$(tail -n +4 RELEASE.txt)
+
+          # Передаём в output (multiline)
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ github.event.inputs.tag }}
+          git push origin ${{ github.event.inputs.tag }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ steps.release_notes.outputs.title }}
+          body: ${{ steps.release_notes.outputs.body }}
