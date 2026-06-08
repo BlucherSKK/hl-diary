@@ -6,7 +6,7 @@
 
 ## Русский
 
-**HL.diary** — личный зашифрованный дневник с веб-интерфейсом. Сервер хранит только зашифрованный блоб и не видит ни одного байта ваших данных — всё шифрование и дешифрование происходит прямо в браузере.
+**HL.diary** — личный зашифрованный дневник с веб-интерфейсом для установки на домашний сервер. Сервер хранит только зашифрованный блоб и не видит ни одного байта ваших данных — всё шифрование и дешифрование происходит прямо в браузере.
 
 ### Возможности
 
@@ -97,7 +97,7 @@ cargo run --release
 
 ## English
 
-**HL.diary** is a personal encrypted diary with a web interface. The server stores only an encrypted blob and never sees a single byte of your data — all encryption and decryption happens directly in the browser.
+**HL.diary** is a personal encrypted diary with a web interface for your homelab. The server stores only an encrypted blob and never sees a single byte of your data — all encryption and decryption happens directly in the browser.
 
 ### Features
 
