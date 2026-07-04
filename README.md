@@ -16,6 +16,13 @@
 - **Threads** — a chat-style feed for notes and drafts with image attachments
 - **Client-side encryption** — AES-256-GCM + PBKDF2 (200 000 iterations); the server never sees your password or content
 
+### Markdown Extensions (Articles)
+
+In addition to standard Markdown, the article editor supports custom extensions:
+- **Passwords**: Wrap text in double pipes `||my_password||`. It will be visually obfuscated (e.g., `m*********d`) and can be copied to the clipboard with a single click.
+- **Ratings**: Use the format `[score/max](fill)` (e.g., `[85/100](fill)` or `[4/5](fill)`). It renders a styled colored button indicating the score (from red to green) alongside the text.
+- **Wiki-links**: Use `[[Article Name]]` to create clickable internal links between articles.
+
 ### Screenshots
 
 **Calendar**
@@ -113,6 +120,13 @@ cargo run --release
 - **Статьи** — вики-подобный редактор с поддержкой Markdown-разметки (`# заголовки`, `**жирный**`, `[[ссылки на другие статьи]]`), встроенными изображениями и поиском
 - **Треды** — чат-лента для заметок и черновиков с поддержкой прикреплённых изображений
 - **Клиентское шифрование** — AES-256-GCM + PBKDF2 (200 000 итераций); сервер никогда не видит ваш пароль или содержимое
+
+### Дополнительная разметка (Статьи)
+
+Помимо стандартного Markdown, редактор статей поддерживает пользовательские расширения:
+- **Пароли**: Оберните текст в двойные прямые черты `||мой_пароль||`. Он будет визуально скрыт звездочками (например, `м********ь`), но скопируется в буфер обмена по одному клику.
+- **Оценки**: Используйте формат `[оценка/максимум](fill)` (например, `[85/100](fill)` или `[4/5](fill)`). Оценка отрендерится в виде цветной рельефной кнопки (от красной до зеленой) рядом с текстом.
+- **Вики-ссылки**: Используйте `[[Название статьи]]` для создания внутренних ссылок на другие записи.
 
 ### Скриншоты
 
