@@ -15,7 +15,7 @@ function processInline(
   onLink: (t: string) => void,
 ) {
   // Ordered so longer/greedier patterns come first (** before *)
-  const re = /({{img:[^|]+\|[^}]+}}|\[\[[^\]]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)/g;
+  const re = /({{img:[^|]+\|[^}]+}}|\[\d+\/\d+\]\(fill\)|\[\[[^\]]+\]\]|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)/g;
   let last = 0;
   let m: RegExpExecArray | null;
 
@@ -43,6 +43,92 @@ function processInline(
         miss.textContent = `[image not found: ${imgM[1]}]`;
         parent.appendChild(miss);
       }
+      last = re.lastIndex;
+      continue;
+    }
+
+    // [score/max](fill)
+    const fillM = tok.match(/^\[(\d+)\/(\d+)\]\(fill\)$/);
+    if (fillM) {
+      const score = parseInt(fillM[1], 10);
+      const max = parseInt(fillM[2], 10);
+      const ratio = max > 0 ? score / max : 0;
+      
+      let smileIdx = 1;
+      if (ratio <= 0.2) smileIdx = 1;
+      else if (ratio <= 0.4) smileIdx = 2;
+      else if (ratio <= 0.6) smileIdx = 3;
+      else if (ratio <= 0.8) smileIdx = 4;
+      else smileIdx = 5;
+
+      const smileys = [
+        "##SMILE1##",
+        "##SMILE2##",
+        "##SMILE3##",
+        "##SMILE4##",
+        "##SMILE5##"
+      ];
+
+      const wrap = document.createElement('span');
+      wrap.className = 'art-fill-rating';
+      
+      const img = document.createElement('img');
+      img.src = smileys[smileIdx - 1];
+      img.className = 'art-smile';
+      img.style.height = '1.2em';
+      img.style.verticalAlign = 'middle';
+      img.style.marginRight = '4px';
+      
+      const text = document.createElement('span');
+      text.textContent = `${score}/${max}`;
+      text.style.verticalAlign = 'middle';
+      
+      wrap.appendChild(img);
+      wrap.appendChild(text);
+      parent.appendChild(wrap);
+      
+      last = re.lastIndex;
+      continue;
+    }
+
+    // ||password||
+    if (tok.startsWith('||') && tok.endsWith('||')) {
+      const password = tok.slice(2, -2);
+      const span = document.createElement('span');
+      span.className = 'art-password';
+      
+      const firstChar = password.length > 0 ? password[0] : '';
+      const lastChar = password.length > 1 ? password[password.length - 1] : '';
+      
+      let displayText = '';
+      if (password.length === 0) {
+          displayText = '';
+      } else if (password.length === 1) {
+          displayText = firstChar;
+      } else if (password.length === 2) {
+          displayText = firstChar + lastChar;
+      } else {
+          displayText = firstChar + '*'.repeat(password.length - 2) + lastChar;
+      }
+
+      span.textContent = displayText;
+      span.title = 'Скопировать пароль';
+      span.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(password);
+          const orig = span.textContent;
+          span.textContent = 'Скопировано!';
+          span.classList.add('copied');
+          setTimeout(() => {
+            span.textContent = orig;
+            span.classList.remove('copied');
+          }, 1000);
+        } catch (err) {
+          console.error('Failed to copy', err);
+        }
+      });
+      parent.appendChild(span);
       last = re.lastIndex;
       continue;
     }

@@ -36,6 +36,17 @@ cp -r ./client/* ./tmp/tempapp/
 cat ./tmp/tempapp/style.css | tr -d '\r\n' | sed 's/  */ /g' > ./tmp/val.tmp
 replace_from_file ./tmp/tempapp/index.html "##STYLE##" ./tmp/val.tmp
 
+img_to_base64 ./client/smile1.svg > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/views/articles.ts "##SMILE1##" ./tmp/val.tmp
+img_to_base64 ./client/smile2.svg > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/views/articles.ts "##SMILE2##" ./tmp/val.tmp
+img_to_base64 ./client/smile3.svg > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/views/articles.ts "##SMILE3##" ./tmp/val.tmp
+img_to_base64 ./client/smile4.svg > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/views/articles.ts "##SMILE4##" ./tmp/val.tmp
+img_to_base64 ./client/smile5.svg > ./tmp/val.tmp
+replace_from_file ./tmp/tempapp/views/articles.ts "##SMILE5##" ./tmp/val.tmp
+
 # Bundle TypeScript → JS
 esbuild ./tmp/tempapp/main.ts \
     --bundle \

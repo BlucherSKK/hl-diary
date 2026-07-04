@@ -947,6 +947,24 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 }
 .art-link:hover { color: var(--accent-dk); }
 
+.art-password {
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  padding: 0 4px;
+  cursor: pointer;
+  box-shadow: var(--sunken);
+  user-select: none;
+  border-radius: 2px;
+}
+.art-password:hover {
+  background: var(--surface2);
+}
+.art-password.copied {
+  background: var(--success);
+  color: var(--hi);
+}
+
 .art-img {
   display: block;
   margin: 10px 0;
